@@ -1,10 +1,39 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 export default function TeacherDashboard() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [inputPassword, setInputPassword] = useState<string>('');
+  const [authError, setAuthError] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<'upload' | 'questions' | 'live' | 'audit'>('upload');
+
+  // Check session storage on mount
+  useEffect(() => {
+    const sessionAuth = sessionStorage.getItem('teacher_authenticated');
+    if (sessionAuth === 'true') {
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputPassword === 'Admin123') {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('teacher_authenticated', 'true');
+      setAuthError(null);
+    } else {
+      setAuthError('Access Denied: Incorrect password. Please try again.');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    sessionStorage.removeItem('teacher_authenticated');
+    setInputPassword('');
+  };
 
   // Document Upload State
   const [uploading, setUploading] = useState(false);
@@ -90,6 +119,95 @@ export default function TeacherDashboard() {
     }
   };
 
+  if (!isAuthenticated) {
+    return (
+      <div style={{ maxWidth: '480px', margin: '80px auto', padding: '0 20px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <Link href="/" style={{ color: '#06b6d4', textDecoration: 'none', fontWeight: 700, fontSize: '0.9rem' }}>
+            ← Back to Home
+          </Link>
+        </div>
+
+        <div className="glass-panel" style={{ padding: '40px 32px', textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+          <div style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
+            background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.8rem',
+            margin: '0 auto 24px auto',
+            boxShadow: '0 8px 20px rgba(99, 102, 241, 0.4)'
+          }}>
+            🔐
+          </div>
+
+          <h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: '8px', color: '#f8fafc' }}>
+            Teacher Command Center
+          </h2>
+          <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '28px', lineHeight: 1.5 }}>
+            Restricted Access. Please enter the institutional security password to access live proctoring & exam controls.
+          </p>
+
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div>
+              <input
+                type="password"
+                placeholder="Enter password (e.g. Admin123)"
+                value={inputPassword}
+                onChange={(e) => setInputPassword(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  border: authError ? '1px solid #f43f5e' : '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  fontSize: '1rem',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  transition: 'border-color 0.2s',
+                }}
+                autoFocus
+              />
+            </div>
+
+            {authError && (
+              <div style={{
+                padding: '10px 14px',
+                borderRadius: '8px',
+                background: 'rgba(244, 63, 94, 0.15)',
+                border: '1px solid rgba(244, 63, 94, 0.4)',
+                color: '#fb7185',
+                fontSize: '0.85rem',
+                textAlign: 'left',
+              }}>
+                ⚠️ {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="btn-primary"
+              style={{
+                width: '100%',
+                padding: '14px',
+                fontSize: '1rem',
+                fontWeight: 700,
+                marginTop: '8px',
+                cursor: 'pointer',
+              }}
+            >
+              Unlock Command Center
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
       {/* Navbar */}
@@ -98,7 +216,7 @@ export default function TeacherDashboard() {
           ← Institutional Portal
         </Link>
 
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <button
             onClick={() => setActiveTab('upload')}
             className={activeTab === 'upload' ? 'btn-primary' : 'btn-secondary'}
@@ -122,6 +240,15 @@ export default function TeacherDashboard() {
             className={activeTab === 'audit' ? 'btn-primary' : 'btn-secondary'}
           >
             📊 Integrity Audit Reports
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="btn-secondary"
+            style={{ borderColor: 'rgba(244, 63, 94, 0.4)', color: '#fb7185' }}
+            title="Lock Command Center"
+          >
+            🔒 Lock
           </button>
         </div>
       </div>
