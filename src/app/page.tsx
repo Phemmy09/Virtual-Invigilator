@@ -21,6 +21,9 @@ export default function LandingPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '16px' }}>
+          <Link href="/enroll" className="btn-secondary" style={{ borderColor: 'rgba(99, 102, 241, 0.4)', color: '#818cf8' }}>
+            ➕ Student Enrollment
+          </Link>
           <Link href="/student" className="btn-secondary">
             Student Exam Portal
           </Link>
@@ -44,6 +47,9 @@ export default function LandingPage() {
         </p>
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', flexWrap: 'wrap' }}>
+          <Link href="/enroll" className="btn-primary" style={{ padding: '16px 36px', fontSize: '1rem', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}>
+            ➕ Enroll Candidate
+          </Link>
           <Link href="/student" className="btn-primary" style={{ padding: '16px 36px', fontSize: '1rem' }}>
             🚀 Launch Student Portal
           </Link>
