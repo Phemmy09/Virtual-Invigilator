@@ -10,13 +10,15 @@ declare global {
 }
 
 export default function StudentEnrollment() {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [idNumber, setIdNumber] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [dob, setDob] = useState('');
+  const [age, setAge] = useState('');
 
   const [isModelsLoaded, setIsModelsLoaded] = useState(false);
-  const [cameraActive, setCameraActive] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [faceDescriptor, setFaceDescriptor] = useState<number[] | null>(null);
   const [captureStatus, setCaptureStatus] = useState<string>('Initializing Biometric Camera Engine...');
@@ -27,6 +29,25 @@ export default function StudentEnrollment() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Auto-calculate age from DOB
+  const handleDobChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedDob = e.target.value;
+    setDob(selectedDob);
+
+    if (selectedDob) {
+      const birthDate = new Date(selectedDob);
+      const today = new Date();
+      let calculatedAge = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        calculatedAge--;
+      }
+      if (!isNaN(calculatedAge) && calculatedAge >= 0) {
+        setAge(calculatedAge.toString());
+      }
+    }
+  };
 
   // Load face-api.js
   useEffect(() => {
@@ -73,8 +94,7 @@ export default function StudentEnrollment() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
-        setCameraActive(true);
-        setCaptureStatus('Camera live. Position face in frame and click Capture.');
+        setCaptureStatus('Camera live. Align face in frame and click Capture.');
       }
     } catch (err) {
       console.error('Webcam access error:', err);
@@ -109,7 +129,7 @@ export default function StudentEnrollment() {
           setFaceDescriptor(descriptorArr);
           setCaptureStatus('✅ Biometric Face Profile & 128-Float Descriptor Captured!');
         } else {
-          setCaptureStatus('⚠️ Photo captured, but no face detected in frame. Please align face and retry.');
+          setCaptureStatus('⚠️ Photo captured. Align face centered for best biometric matching.');
         }
       } catch (err) {
         console.error('Face descriptor extraction error:', err);
@@ -124,13 +144,13 @@ export default function StudentEnrollment() {
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!name.trim() || !idNumber.trim()) {
-      setErrorMessage('Full Name and Student ID Number are required.');
+    if (!firstName.trim() || !lastName.trim() || !idNumber.trim() || !email.trim() || !phone.trim() || !dob || !age) {
+      setErrorMessage('Please fill in all required registration details (First Name, Last Name, ID Number, Email, Phone, Date of Birth, Age).');
       return;
     }
 
     if (!capturedPhoto) {
-      setErrorMessage('Please capture candidate face photo before submitting enrollment.');
+      setErrorMessage('Please capture candidate face photo before submitting registration.');
       return;
     }
 
@@ -138,10 +158,14 @@ export default function StudentEnrollment() {
 
     try {
       const payload = {
-        name: name.trim(),
-        phone: phone.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        name: `${firstName.trim()} ${lastName.trim()}`,
         idNumber: idNumber.trim(),
         email: email.trim(),
+        phone: phone.trim(),
+        dob: dob,
+        age: parseInt(age, 10) || age,
         photoUrl: capturedPhoto,
         faceDescriptor: faceDescriptor || null,
       };
@@ -157,30 +181,33 @@ export default function StudentEnrollment() {
       if (data.success && data.student) {
         setEnrolledStudent(data.student);
       } else {
-        setErrorMessage(data.error || 'Failed to enroll student.');
+        setErrorMessage(data.error || 'Failed to register student.');
       }
     } catch (err: any) {
       console.error('Enrollment submission error:', err);
-      setErrorMessage('Error submitting student enrollment.');
+      setErrorMessage('Error submitting student registration.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const resetForm = () => {
-    setName('');
-    setPhone('');
+    setFirstName('');
+    setLastName('');
     setIdNumber('');
     setEmail('');
+    setPhone('');
+    setDob('');
+    setAge('');
     setCapturedPhoto(null);
     setFaceDescriptor(null);
     setEnrolledStudent(null);
     setErrorMessage(null);
-    setCaptureStatus('Position face in frame and click Capture.');
+    setCaptureStatus('Align face in frame and click Capture.');
   };
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }}>
+    <div style={{ maxWidth: '1050px', margin: '0 auto', padding: '40px 20px' }}>
       {/* Navbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
         <Link href="/" style={{ color: '#06b6d4', textDecoration: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -209,19 +236,19 @@ export default function StudentEnrollment() {
           fontWeight: 700,
           marginBottom: '12px'
         }}>
-          INSTITUTIONAL IDENTITY MANAGEMENT
+          INSTITUTIONAL REGISTRATION PORTAL
         </div>
         <h1 style={{ fontSize: '2.2rem', fontWeight: 800, marginBottom: '8px' }}>
-          Candidate Biometric Enrollment Portal
+          Student Registration & Biometric Enrollment
         </h1>
         <p style={{ color: '#94a3b8', maxWidth: '640px', margin: '0 auto', fontSize: '0.95rem' }}>
-          Register new candidates with full contact details and capture their baseline facial biometrics for automated exam identity verification.
+          Input candidate credentials (First Name, Last Name, Student ID, Email, Phone, Date of Birth, Age) and record live biometric facial photo profile.
         </p>
       </div>
 
       {/* SUCCESS CARD */}
       {enrolledStudent ? (
-        <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
+        <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', maxWidth: '640px', margin: '0 auto' }}>
           <div style={{
             width: '64px',
             height: '64px',
@@ -237,17 +264,17 @@ export default function StudentEnrollment() {
             ✅
           </div>
           <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#34d399', marginBottom: '8px' }}>
-            Student Enrolled Successfully!
+            Student Registered Successfully!
           </h2>
           <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '24px' }}>
-            Biometric facial record created for candidate <strong>{enrolledStudent.name}</strong>.
+            Registration & facial biometric profile created for candidate <strong>{enrolledStudent.name}</strong>.
           </p>
 
           <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '20px',
-            padding: '20px',
+            padding: '24px',
             borderRadius: '12px',
             background: 'rgba(255, 255, 255, 0.03)',
             border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -258,26 +285,27 @@ export default function StudentEnrollment() {
               <img
                 src={enrolledStudent.photoUrl}
                 alt={enrolledStudent.name}
-                style={{ width: '100px', height: '100px', borderRadius: '10px', objectFit: 'cover', border: '2px solid #06b6d4' }}
+                style={{ width: '110px', height: '110px', borderRadius: '12px', objectFit: 'cover', border: '2px solid #06b6d4' }}
               />
             ) : (
-              <div style={{ width: '100px', height: '100px', borderRadius: '10px', background: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>
+              <div style={{ width: '110px', height: '110px', borderRadius: '12px', background: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem' }}>
                 👤
               </div>
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.9rem', color: '#cbd5e1' }}>
-              <div><strong>Name:</strong> {enrolledStudent.name}</div>
+              <div><strong>Name:</strong> {enrolledStudent.firstName} {enrolledStudent.lastName}</div>
               <div><strong>Student ID:</strong> <span style={{ color: '#06b6d4' }}>{enrolledStudent.idNumber}</span></div>
-              <div><strong>Phone:</strong> {enrolledStudent.phone || 'N/A'}</div>
-              <div><strong>Email:</strong> {enrolledStudent.email || 'N/A'}</div>
-              <div><strong>Biometric Status:</strong> <span style={{ color: '#10b981' }}>✓ 128-Float Face Vector Saved</span></div>
+              <div><strong>Email:</strong> {enrolledStudent.email}</div>
+              <div><strong>Phone:</strong> {enrolledStudent.phone}</div>
+              <div><strong>Date of Birth:</strong> {enrolledStudent.dob} (Age: {enrolledStudent.age})</div>
+              <div><strong>Biometric Status:</strong> <span style={{ color: '#10b981' }}>✓ 128-Float Vector Saved</span></div>
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
             <button onClick={resetForm} className="btn-secondary">
-              + Enroll Another Candidate
+              + Register Another Student
             </button>
             <Link href="/student" className="btn-primary" style={{ textDecoration: 'none' }}>
               Proceed to Student Exam Login →
@@ -285,73 +313,127 @@ export default function StudentEnrollment() {
           </div>
         </div>
       ) : (
-        /* ENROLLMENT FORM */
+        /* REGISTRATION FORM */
         <form onSubmit={handleEnrollSubmit} className="glass-panel" style={{ padding: '40px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '36px' }}>
-            {/* Left: Candidate Details */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '10px' }}>
-                1. Candidate Information
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '36px' }}>
+            {/* Left: Required Candidate Details */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '10px' }}>
+                1. Required Candidate Details
               </h3>
 
-              <div>
-                <label style={{ fontSize: '0.85rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
-                  Full Candidate Name <span style={{ color: '#f43f5e' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Samuel Okon"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px',
-                    borderRadius: '8px',
-                    background: 'rgba(15, 23, 42, 0.8)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    color: '#ffffff',
-                    fontSize: '0.95rem',
-                    boxSizing: 'border-box',
-                  }}
-                />
+              {/* First Name & Last Name */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                    First Name <span style={{ color: '#f43f5e' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Alex"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '0.95rem',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                    Last Name <span style={{ color: '#f43f5e' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Mercer"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '0.95rem',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
               </div>
 
-              <div>
-                <label style={{ fontSize: '0.85rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
-                  Student ID Number / Matric Number <span style={{ color: '#f43f5e' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. STU-2026-9041"
-                  value={idNumber}
-                  onChange={(e) => setIdNumber(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px',
-                    borderRadius: '8px',
-                    background: 'rgba(15, 23, 42, 0.8)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    color: '#ffffff',
-                    fontSize: '0.95rem',
-                    boxSizing: 'border-box',
-                  }}
-                />
+              {/* Student ID & Email */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                    Student ID Number <span style={{ color: '#f43f5e' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. HVD-2026-8942"
+                    value={idNumber}
+                    onChange={(e) => setIdNumber(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '0.95rem',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                    Email Address <span style={{ color: '#f43f5e' }}>*</span>
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="e.g. alex.mercer@harvard.edu"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '0.95rem',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
               </div>
 
+              {/* Phone Number */}
               <div>
-                <label style={{ fontSize: '0.85rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
-                  Phone Number
+                <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                  Phone Number <span style={{ color: '#f43f5e' }}>*</span>
                 </label>
                 <input
                   type="tel"
-                  placeholder="e.g. +234 801 234 5678"
+                  placeholder="e.g. +1 (555) 234-5678"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
+                  required
                   style={{
                     width: '100%',
-                    padding: '12px 14px',
+                    padding: '12px',
                     borderRadius: '8px',
                     background: 'rgba(15, 23, 42, 0.8)',
                     border: '1px solid rgba(255, 255, 255, 0.15)',
@@ -362,33 +444,59 @@ export default function StudentEnrollment() {
                 />
               </div>
 
-              <div>
-                <label style={{ fontSize: '0.85rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
-                  Institutional Email
-                </label>
-                <input
-                  type="email"
-                  placeholder="e.g. samuel.okon@university.edu"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px',
-                    borderRadius: '8px',
-                    background: 'rgba(15, 23, 42, 0.8)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    color: '#ffffff',
-                    fontSize: '0.95rem',
-                    boxSizing: 'border-box',
-                  }}
-                />
+              {/* Date of Birth & Age */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                    Date of Birth <span style={{ color: '#f43f5e' }}>*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={dob}
+                    onChange={handleDobChange}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '0.95rem',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                    Age (Auto-calculated) <span style={{ color: '#f43f5e' }}>*</span>
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 24"
+                    value={age}
+                    onChange={(e) => setAge(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '0.95rem',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
             {/* Right: Camera Biometric Capture */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '10px' }}>
-                2. Live Biometric Photo Capture
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '10px' }}>
+                2. Biometric Photo Capture <span style={{ color: '#f43f5e' }}>*</span>
               </h3>
 
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -447,7 +555,7 @@ export default function StudentEnrollment() {
                 </div>
               </div>
 
-              {/* Status Alert */}
+              {/* Error Alert */}
               {errorMessage && (
                 <div style={{
                   padding: '12px 16px',
@@ -474,7 +582,7 @@ export default function StudentEnrollment() {
                   cursor: isSubmitting ? 'not-allowed' : 'pointer'
                 }}
               >
-                {isSubmitting ? 'Saving Enrollment Record...' : '💾 Submit Candidate Enrollment'}
+                {isSubmitting ? 'Registering Student...' : '💾 Submit Student Registration'}
               </button>
             </div>
           </div>

@@ -3,10 +3,14 @@ import { supabase, isSupabaseConfigured } from '@/utils/supabase';
 
 interface StudentRecord {
   id?: string;
+  firstName: string;
+  lastName: string;
   name: string;
   phone: string;
   idNumber: string;
   email: string;
+  dob: string;
+  age: number | string;
   photoUrl: string;
   faceDescriptor?: number[];
   createdAt: string;
@@ -16,10 +20,14 @@ interface StudentRecord {
 const inMemoryStudents: StudentRecord[] = [
   {
     id: 'demo-1',
+    firstName: 'Alex',
+    lastName: 'Mercer',
     name: 'Alex Mercer',
     phone: '+1 (555) 234-5678',
     idNumber: 'HVD-2026-8942',
     email: 'alex.mercer@harvard.edu',
+    dob: '2002-05-14',
+    age: 24,
     photoUrl: '/file.svg',
     createdAt: new Date().toISOString(),
   },
@@ -28,21 +36,29 @@ const inMemoryStudents: StudentRecord[] = [
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, phone, idNumber, email, photoUrl, faceDescriptor } = body;
+    const { firstName, lastName, name, phone, idNumber, email, dob, age, photoUrl, faceDescriptor } = body;
 
-    if (!name || !idNumber) {
+    const finalFirstName = (firstName || '').trim();
+    const finalLastName = (lastName || '').trim();
+    const fullName = (name || `${finalFirstName} ${finalLastName}`).trim();
+
+    if (!fullName || !idNumber) {
       return NextResponse.json(
-        { success: false, error: 'Name and Student ID Number are required.' },
+        { success: false, error: 'First Name, Last Name, and Student ID Number are required.' },
         { status: 400 }
       );
     }
 
     const newStudent: StudentRecord = {
       id: `std-${Date.now()}`,
-      name: name.trim(),
+      firstName: finalFirstName,
+      lastName: finalLastName,
+      name: fullName,
       phone: (phone || '').trim(),
-      idNumber: idNumber.trim(),
+      idNumber: (idNumber || '').trim(),
       email: (email || '').trim(),
+      dob: (dob || '').trim(),
+      age: age !== undefined ? age : '',
       photoUrl: photoUrl || '',
       faceDescriptor: faceDescriptor || null,
       createdAt: new Date().toISOString(),
@@ -50,7 +66,7 @@ export async function POST(req: NextRequest) {
 
     // Save to Supabase if configured
     if (isSupabaseConfigured()) {
-      const { data, error } = await supabase.from('students').upsert({
+      const { error } = await supabase.from('students').upsert({
         name: newStudent.name,
         email: newStudent.email || `${newStudent.idNumber.toLowerCase()}@student.edu`,
         matric_number: newStudent.idNumber,
@@ -75,7 +91,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'Student enrolled successfully!',
+      message: 'Student registered successfully!',
       student: newStudent,
     });
   } catch (err: any) {
@@ -115,10 +131,14 @@ export async function GET(req: NextRequest) {
       if (data && !error) {
         student = {
           id: data.id,
+          firstName: data.name.split(' ')[0] || data.name,
+          lastName: data.name.split(' ').slice(1).join(' ') || '',
           name: data.name,
           phone: '',
           idNumber: data.matric_number,
           email: data.email,
+          dob: '',
+          age: '',
           photoUrl: '',
           faceDescriptor: data.face_descriptor,
           createdAt: data.created_at,
@@ -128,7 +148,7 @@ export async function GET(req: NextRequest) {
 
     if (!student) {
       return NextResponse.json(
-        { success: false, error: 'No enrolled candidate found matching the provided details.' },
+        { success: false, error: 'No registered student found matching the provided details.' },
         { status: 404 }
       );
     }
