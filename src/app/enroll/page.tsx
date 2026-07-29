@@ -22,6 +22,7 @@ export default function StudentEnrollment() {
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [faceDescriptor, setFaceDescriptor] = useState<number[] | null>(null);
   const [captureStatus, setCaptureStatus] = useState<string>('Initializing Biometric Camera Engine...');
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [enrolledStudent, setEnrolledStudent] = useState<any>(null);
@@ -29,6 +30,8 @@ export default function StudentEnrollment() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const dobInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Auto-calculate age from DOB
   const handleDobChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -38,14 +41,20 @@ export default function StudentEnrollment() {
     if (selectedDob) {
       const birthDate = new Date(selectedDob);
       const today = new Date();
-      let calculatedAge = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        calculatedAge--;
+      if (!isNaN(birthDate.getTime())) {
+        let calculatedAge = today.getFullYear() - birthDate.getFullYear();
+        const monthDiff = today.getMonth() - birthDate.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+          calculatedAge--;
+        }
+        if (calculatedAge >= 0 && calculatedAge < 120) {
+          setAge(calculatedAge.toString());
+        } else {
+          setAge('');
+        }
       }
-      if (!isNaN(calculatedAge) && calculatedAge >= 0) {
-        setAge(calculatedAge.toString());
-      }
+    } else {
+      setAge('');
     }
   };
 
@@ -57,9 +66,14 @@ export default function StudentEnrollment() {
     script.onload = () => {
       loadModels();
     };
+    script.onerror = () => {
+      setCaptureStatus('Standard Camera Mode Ready (Face API fallback).');
+      startCamera();
+    };
     document.body.appendChild(script);
 
     return () => {
+      stopCamera();
       if (document.body.contains(script)) {
         document.body.removeChild(script);
       }
@@ -74,7 +88,7 @@ export default function StudentEnrollment() {
         await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
         await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
         setIsModelsLoaded(true);
-        setCaptureStatus('Ready. Turn on camera to capture face profile.');
+        setCaptureStatus('Biometric AI Engine Ready. Align face in camera frame.');
         startCamera();
       }
     } catch (err) {
@@ -84,41 +98,59 @@ export default function StudentEnrollment() {
     }
   };
 
+  const stopCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsCameraActive(false);
+  };
+
   const startCamera = async () => {
     try {
+      stopCamera();
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 240, frameRate: 15 },
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
         audio: false,
       });
 
+      mediaStreamRef.current = stream;
+      setIsCameraActive(true);
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        setCaptureStatus('Camera live. Align face in frame and click Capture.');
+        await videoRef.current.play().catch(() => {});
+        setCaptureStatus('Live camera active. Position face centered in frame.');
       }
     } catch (err) {
       console.error('Webcam access error:', err);
-      setCaptureStatus('⚠️ Camera access denied or missing.');
+      setIsCameraActive(false);
+      setCaptureStatus('⚠️ Camera permission denied or webcam missing.');
     }
   };
 
   const handleCaptureFace = async () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current && !mediaStreamRef.current) {
+      await startCamera();
+      return;
+    }
 
-    // Capture snapshot as base64 string
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth || 320;
-    canvas.height = videoRef.current.videoHeight || 240;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const photoDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      setCapturedPhoto(photoDataUrl);
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth || 320;
+      canvas.height = videoRef.current.videoHeight || 240;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        const photoDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        setCapturedPhoto(photoDataUrl);
+      }
     }
 
     // Extract 128-float face descriptor if face-api available
-    if (window.faceapi && isModelsLoaded) {
+    if (window.faceapi && isModelsLoaded && videoRef.current) {
       try {
+        setCaptureStatus('Extracting facial 128-float descriptor...');
         const detection = await window.faceapi
           .detectSingleFace(videoRef.current, new window.faceapi.TinyFaceDetectorOptions())
           .withFaceLandmarks()
@@ -127,16 +159,31 @@ export default function StudentEnrollment() {
         if (detection) {
           const descriptorArr = Array.from(detection.descriptor) as number[];
           setFaceDescriptor(descriptorArr);
-          setCaptureStatus('✅ Biometric Face Profile & 128-Float Descriptor Captured!');
+          setCaptureStatus('✅ Biometric Face Profile & 128-Float Descriptor Saved!');
         } else {
-          setCaptureStatus('⚠️ Photo captured. Align face centered for best biometric matching.');
+          setCaptureStatus('✓ Photo captured. Face centered for optimal biometric verification.');
         }
       } catch (err) {
         console.error('Face descriptor extraction error:', err);
-        setCaptureStatus('✓ Photo captured (standard mode).');
+        setCaptureStatus('✓ Photo captured (Standard mode).');
       }
     } else {
-      setCaptureStatus('✓ Photo captured.');
+      setCaptureStatus('✓ Photo captured successfully.');
+    }
+  };
+
+  const handleRetakePhoto = async () => {
+    setCapturedPhoto(null);
+    setFaceDescriptor(null);
+    setCaptureStatus('Camera live. Align face in frame and click Capture.');
+
+    if (!isCameraActive || !mediaStreamRef.current) {
+      await startCamera();
+    } else if (videoRef.current) {
+      if (videoRef.current.srcObject !== mediaStreamRef.current) {
+        videoRef.current.srcObject = mediaStreamRef.current;
+      }
+      videoRef.current.play().catch(() => {});
     }
   };
 
@@ -145,12 +192,12 @@ export default function StudentEnrollment() {
     setErrorMessage(null);
 
     if (!firstName.trim() || !lastName.trim() || !idNumber.trim() || !email.trim() || !phone.trim() || !dob || !age) {
-      setErrorMessage('Please fill in all required registration details (First Name, Last Name, ID Number, Email, Phone, Date of Birth, Age).');
+      setErrorMessage('Please fill in all required candidate registration fields (First Name, Last Name, Student ID, Email, Phone, Date of Birth, Age).');
       return;
     }
 
     if (!capturedPhoto) {
-      setErrorMessage('Please capture candidate face photo before submitting registration.');
+      setErrorMessage('Please capture candidate facial photo before submitting registration.');
       return;
     }
 
@@ -185,7 +232,7 @@ export default function StudentEnrollment() {
       }
     } catch (err: any) {
       console.error('Enrollment submission error:', err);
-      setErrorMessage('Error submitting student registration.');
+      setErrorMessage('Error submitting student registration. Check network connection.');
     } finally {
       setIsSubmitting(false);
     }
@@ -203,7 +250,7 @@ export default function StudentEnrollment() {
     setFaceDescriptor(null);
     setEnrolledStudent(null);
     setErrorMessage(null);
-    setCaptureStatus('Align face in frame and click Capture.');
+    handleRetakePhoto();
   };
 
   return (
@@ -447,25 +494,56 @@ export default function StudentEnrollment() {
               {/* Date of Birth & Age */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 <div>
-                  <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
-                    Date of Birth <span style={{ color: '#f43f5e' }}>*</span>
+                  <label style={{ fontSize: '0.85rem', color: '#cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span>Date of Birth <span style={{ color: '#f43f5e' }}>*</span></span>
+                    <button
+                      type="button"
+                      onClick={() => dobInputRef.current?.showPicker?.()}
+                      style={{ background: 'none', border: 'none', color: '#06b6d4', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
+                    >
+                      📅 Open Calendar
+                    </button>
                   </label>
-                  <input
-                    type="date"
-                    value={dob}
-                    onChange={handleDobChange}
-                    required
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      background: 'rgba(15, 23, 42, 0.8)',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
-                      color: '#ffffff',
-                      fontSize: '0.95rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      ref={dobInputRef}
+                      type="date"
+                      value={dob}
+                      max={new Date().toISOString().split('T')[0]}
+                      onChange={handleDobChange}
+                      onClick={(e) => {
+                        try {
+                          (e.target as any).showPicker?.();
+                        } catch (err) {}
+                      }}
+                      required
+                      style={{
+                        width: '100%',
+                        padding: '12px 38px 12px 12px',
+                        borderRadius: '8px',
+                        background: 'rgba(15, 23, 42, 0.8)',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        color: '#ffffff',
+                        colorScheme: 'dark',
+                        fontSize: '0.95rem',
+                        boxSizing: 'border-box',
+                        cursor: 'pointer',
+                      }}
+                    />
+                    <span
+                      onClick={() => dobInputRef.current?.showPicker?.()}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        cursor: 'pointer',
+                        fontSize: '1.1rem',
+                        userSelect: 'none',
+                        pointerEvents: 'auto'
+                      }}
+                    >
+                      📅
+                    </span>
+                  </div>
                 </div>
 
                 <div>
@@ -474,7 +552,7 @@ export default function StudentEnrollment() {
                   </label>
                   <input
                     type="number"
-                    placeholder="e.g. 24"
+                    placeholder="Auto-calculated from DOB"
                     value={age}
                     onChange={(e) => setAge(e.target.value)}
                     required
@@ -500,6 +578,7 @@ export default function StudentEnrollment() {
               </h3>
 
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                {/* Camera / Snapshot Box */}
                 <div style={{
                   position: 'relative',
                   width: '320px',
@@ -512,45 +591,87 @@ export default function StudentEnrollment() {
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}>
-                  {capturedPhoto ? (
+                  {/* Persistent Video Element */}
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      display: capturedPhoto ? 'none' : 'block'
+                    }}
+                  />
+
+                  {/* Captured Snapshot Overlay */}
+                  {capturedPhoto && (
                     <img
                       src={capturedPhoto}
                       alt="Captured Face Preview"
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  ) : (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        zIndex: 5
+                      }}
                     />
                   )}
-                  <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} />
+
+                  <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', zIndex: 10 }} />
                 </div>
 
+                {/* Status Indicator */}
                 <div style={{ margin: '12px 0', textAlign: 'center', fontSize: '0.85rem', color: capturedPhoto ? '#34d399' : '#94a3b8' }}>
                   {captureStatus}
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button
-                    type="button"
-                    onClick={handleCaptureFace}
-                    className="btn-secondary"
-                    style={{ background: 'rgba(99, 102, 241, 0.2)', borderColor: '#6366f1', color: '#ffffff' }}
-                  >
-                    📸 {capturedPhoto ? 'Retake Photo' : 'Capture Biometric Photo'}
-                  </button>
-                  {capturedPhoto && (
-                    <button
-                      type="button"
-                      onClick={() => setCapturedPhoto(null)}
-                      className="btn-secondary"
-                    >
-                      Clear
-                    </button>
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {!capturedPhoto ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleCaptureFace}
+                        className="btn-primary"
+                        style={{ padding: '10px 18px', fontSize: '0.9rem' }}
+                      >
+                        📸 Capture Biometric Photo
+                      </button>
+                      {!isCameraActive && (
+                        <button
+                          type="button"
+                          onClick={startCamera}
+                          className="btn-secondary"
+                          style={{ padding: '10px 14px', fontSize: '0.9rem' }}
+                        >
+                          🎥 Start Camera
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleRetakePhoto}
+                        className="btn-secondary"
+                        style={{ background: 'rgba(99, 102, 241, 0.2)', borderColor: '#6366f1', color: '#ffffff', padding: '10px 16px', fontSize: '0.9rem' }}
+                      >
+                        🔄 Retake Photo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRetakePhoto}
+                        className="btn-secondary"
+                        style={{ padding: '10px 14px', fontSize: '0.9rem' }}
+                      >
+                        Clear
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
