@@ -24,6 +24,12 @@ export default function LandingPage() {
           <Link href="/enroll" className="btn-secondary" style={{ borderColor: 'rgba(99, 102, 241, 0.4)', color: '#818cf8' }}>
             ➕ Student Enrollment
           </Link>
+          <Link href="/embed-demo" className="btn-secondary" style={{ borderColor: 'rgba(6, 182, 212, 0.4)', color: '#38bdf8' }}>
+            🔌 Widget Embed Demo
+          </Link>
+          <Link href="/report" className="btn-secondary" style={{ borderColor: 'rgba(168, 85, 247, 0.4)', color: '#c084fc' }}>
+            📊 Audit Report
+          </Link>
           <Link href="/student" className="btn-secondary">
             Student Exam Portal
           </Link>

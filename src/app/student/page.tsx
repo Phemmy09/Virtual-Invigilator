@@ -579,6 +579,11 @@ export default function StudentPortal() {
               <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '8px' }}>
                 Security Trust Rating: <strong>{examResult.securityTrustScore}%</strong>
               </div>
+              <div style={{ marginTop: '16px' }}>
+                <Link href="/report" className="btn-primary" style={{ textDecoration: 'none', display: 'block', fontSize: '0.85rem', padding: '10px 16px' }}>
+                  📊 View Full Biometric Audit Report →
+                </Link>
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
