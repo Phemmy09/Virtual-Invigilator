@@ -14,7 +14,7 @@ export interface FlagEvidence {
   id: string;
   sessionId: string;
   timestamp: string;
-  eventType: string;
+  eventType: string; // FULLSCREEN_CHANGE, TAB_FOCUS_CHANGE, EXIT_FULLSCREEN, FACE_ABSENCE, MULTIPLE_FACE, SOUND_DETECTED, TAB_NOT_FOCUS, SUSPICIOUS_ACTIVITY
   severity: 'low' | 'medium' | 'critical';
   detailsText: string;
   audioDb: number;
@@ -22,13 +22,17 @@ export interface FlagEvidence {
   videoClipUrl?: string;
 }
 
+const EXTERNAL_WEBHOOK_URL = 'https://examportalv2apitest.azurewebsites.net/api/v1/Proctor/flag';
+
 function ProctorContent() {
   const searchParams = useSearchParams();
-  const examId = searchParams.get('examId') || 'demo-exam';
-  const studentId = searchParams.get('studentId') || 'demo-student';
-  const matricNumber = searchParams.get('matricNumber') || '';
-  const studentName = searchParams.get('studentName') || '';
-  const subject = searchParams.get('subject') || 'CS50 - AI';
+  const examId = searchParams.get('examId') || searchParams.get('exam_id') || '568';
+  const candidateId = searchParams.get('candidateId') || searchParams.get('studentId') || 'a5c69632941a4c99ad0d028e64eac468';
+  const tenantCode = searchParams.get('tenantCode') || searchParams.get('TenantCode') || 'MASTER';
+  const domain = searchParams.get('domain') || 'AI_TESTING';
+  const eventName = searchParams.get('event') || 'AI_FLAG';
+  const studentName = searchParams.get('studentName') || searchParams.get('name') || 'Alex Mercer';
+  const subject = searchParams.get('subject') || 'CS50 - AI Exam';
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -46,7 +50,7 @@ function ProctorContent() {
   const referenceDescriptorRef = useRef<Float32Array | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Capture instant Base64 high-resolution JPEG image frame
+  // Capture Base64 JPEG frame snapshot
   const captureSnapshot = useCallback((): string | null => {
     if (!videoRef.current) return null;
     try {
@@ -65,7 +69,7 @@ function ProctorContent() {
   }, []);
 
   // Record short WebM video clip on flag event
-  const recordVideoClip = useCallback((durationMs = 3000): Promise<string | null> => {
+  const recordVideoClip = useCallback((durationMs = 2500): Promise<string | null> => {
     return new Promise((resolve) => {
       try {
         const stream = mediaStreamRef.current;
@@ -111,6 +115,40 @@ function ProctorContent() {
     });
   }, []);
 
+  // Send Proctor Flag to External Webhook Endpoint & Local Proxy
+  const postFlagToWebhook = useCallback(async (flagPayload: any) => {
+    console.log('[Proctor Widget] Posting Flag Payload to Azure Webhook:', flagPayload);
+
+    // 1. Direct fetch to Azure Webhook Endpoint
+    try {
+      await fetch(EXTERNAL_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'accept': '*/*',
+          'TenantCode': tenantCode || 'MASTER',
+          'Content-Type': 'application/json-patch+json',
+        },
+        body: JSON.stringify(flagPayload),
+      });
+    } catch (err) {
+      console.warn('[Proctor Widget] Direct Azure Webhook fetch error (falling back to proxy):', err);
+    }
+
+    // 2. Proxy fetch to guarantee server-side delivery
+    try {
+      await fetch('/api/webhook/flag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...flagPayload,
+          tenantCode: tenantCode || 'MASTER',
+        }),
+      });
+    } catch (err) {
+      console.error('[Proctor Widget] Webhook proxy fetch error:', err);
+    }
+  }, [tenantCode]);
+
   // Core trigger violation logic with snapshot & video clip capture
   const triggerViolation = useCallback(async (eventType: string, severity: 'low' | 'medium' | 'critical', detailsText: string) => {
     const now = Date.now();
@@ -119,19 +157,21 @@ function ProctorContent() {
     if (now - lastTime < 3000) return;
     lastViolationTimeRef.current[eventType] = now;
 
-    const warningText = `SECURITY WARNING: ${eventType.replace(/_/g, ' ').toUpperCase()} (${detailsText}). Captured as evidence.`;
+    const warningText = `SECURITY WARNING: ${eventType.replace(/_/g, ' ')} (${detailsText}). Recorded & flagged.`;
     setActiveWarning(warningText);
     setTimeout(() => setActiveWarning(null), 5000);
 
-    // 1. Instantly capture image snapshot
+    // 1. Instantly capture snapshot frame
     const snapshotUrl = captureSnapshot();
 
-    // 2. Start recording 2.5 second video clip
+    // 2. Start recording video clip asynchronously
     const videoClipUrl = await recordVideoClip(2500);
 
-    const sessionId = `${examId}-${studentId || matricNumber || 'cand'}`;
+    const flagId = `flag_${now}_${Math.random().toString(36).substring(2, 7)}`;
+    const sessionId = `${examId}-${candidateId}`;
+
     const newEvidence: FlagEvidence = {
-      id: `ev-${now}-${Math.random().toString(36).substr(2, 6)}`,
+      id: flagId,
       sessionId,
       timestamp: new Date().toISOString(),
       eventType,
@@ -145,15 +185,33 @@ function ProctorContent() {
     evidenceLogsRef.current = [newEvidence, ...evidenceLogsRef.current];
     setEvidenceLogs((prev) => [newEvidence, ...prev]);
 
+    // Construct Webhook Body Payload matching exact specification
+    const webhookBodyPayload = {
+      flagId,
+      candidateId,
+      examId,
+      type: eventType, // FULLSCREEN_CHANGE, TAB_FOCUS_CHANGE, EXIT_FULLSCREEN, FACE_ABSENCE, MULTIPLE_FACE, SOUND_DETECTED, TAB_NOT_FOCUS, SUSPICIOUS_ACTIVITY
+      domain, // "AI_TESTING"
+      mediaUrl: snapshotUrl || videoClipUrl || '',
+      description: detailsText,
+      event: eventName, // "AI_FLAG"
+    };
+
+    // Post to Azure Webhook
+    postFlagToWebhook(webhookBodyPayload);
+
     // Send widget alert to parent window SDK
     if (window.parent && window.parent !== window) {
       window.parent.postMessage({
         type: 'OMNIGUARD_WIDGET_ALERT',
-        payload: newEvidence,
+        payload: {
+          ...newEvidence,
+          webhookPayload: webhookBodyPayload,
+        },
       }, '*');
     }
 
-    // POST violation payload to backend API
+    // POST violation payload to backend API logs
     try {
       const res = await fetch('/api/logs', {
         method: 'POST',
@@ -162,7 +220,7 @@ function ProctorContent() {
           sessionId,
           eventType,
           severity,
-          details: { detailsText, audioDb, snapshotUrl, videoClipUrl },
+          details: { detailsText, audioDb, snapshotUrl, videoClipUrl, flagId, candidateId, examId },
         }),
       });
       const data = await res.json();
@@ -170,9 +228,47 @@ function ProctorContent() {
         setTrustScore(data.currentTrustScore);
       }
     } catch (err) {
-      console.error('Failed to log violation:', err);
+      console.error('Failed to log violation internally:', err);
     }
-  }, [examId, studentId, matricNumber, audioDb, captureSnapshot, recordVideoClip]);
+  }, [examId, candidateId, domain, eventName, audioDb, captureSnapshot, recordVideoClip, postFlagToWebhook]);
+
+  // Handle Fullscreen & Tab Focus Events
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        triggerViolation('TAB_NOT_FOCUS', 'medium', 'Browser tab lost visibility / minimized.');
+        triggerViolation('TAB_FOCUS_CHANGE', 'low', 'Tab focus state changed to hidden.');
+      } else {
+        triggerViolation('TAB_FOCUS_CHANGE', 'low', 'Tab focus state returned to active.');
+      }
+    };
+
+    const handleWindowBlur = () => {
+      triggerViolation('TAB_NOT_FOCUS', 'low', 'Window lost active focus.');
+      triggerViolation('TAB_FOCUS_CHANGE', 'low', 'Window blur event triggered.');
+    };
+
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        triggerViolation('EXIT_FULLSCREEN', 'critical', 'Candidate exited full screen mode.');
+        triggerViolation('FULLSCREEN_CHANGE', 'medium', 'Full screen state changed to windowed.');
+      } else {
+        triggerViolation('FULLSCREEN_CHANGE', 'low', 'Full screen mode entered.');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, [triggerViolation]);
 
   // Load face-api.js script dynamically
   useEffect(() => {
@@ -199,7 +295,7 @@ function ProctorContent() {
         await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
         await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
         setIsModelsLoaded(true);
-        setFaceStatus('Biometric AI Engaged. Live Stream Active.');
+        setFaceStatus('Biometric AI Engaged. Camera Active.');
         startVideoAndAudio();
       }
     } catch (err) {
@@ -219,13 +315,13 @@ function ProctorContent() {
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.play().catch(() => {});
       }
 
       setupAudioMeter(stream);
     } catch (err) {
       console.error('Camera/Microphone access error:', err);
-      triggerViolation('no_camera_access', 'critical', 'Camera or microphone access denied by user.');
+      triggerViolation('SUSPICIOUS_ACTIVITY', 'critical', 'Camera or microphone permission denied.');
     }
   };
 
@@ -254,7 +350,7 @@ function ProctorContent() {
         setAudioDb(dB);
 
         if (dB > 68) {
-          triggerViolation('noise_spike', 'medium', `Loud sound / voice detected: ${dB}dB`);
+          triggerViolation('SOUND_DETECTED', 'medium', `Sound / voice spike detected: ${dB}dB`);
         }
 
         requestAnimationFrame(checkAudio);
@@ -262,11 +358,11 @@ function ProctorContent() {
 
       checkAudio();
     } catch (err) {
-      console.error('Audio meter initialization error:', err);
+      console.error('Audio meter error:', err);
     }
   };
 
-  // Continuous Video Frame & Face Landmark Processing (Yaw, Pitch, Turning)
+  // Continuous Video Frame & Face Landmark Processing
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
@@ -293,11 +389,11 @@ function ProctorContent() {
           }
 
           if (detections.length === 0) {
-            setFaceStatus('⚠️ NO FACE DETECTED');
-            triggerViolation('no_face', 'medium', 'Candidate face out of camera view.');
+            setFaceStatus('⚠️ FACE ABSENCE');
+            triggerViolation('FACE_ABSENCE', 'medium', 'Candidate face missing from webcam frame.');
           } else if (detections.length > 1) {
             setFaceStatus('🚨 MULTIPLE FACES DETECTED');
-            triggerViolation('multiple_faces', 'critical', 'Multiple individuals detected in webcam frame.');
+            triggerViolation('MULTIPLE_FACE', 'critical', 'Multiple faces detected in webcam frame.');
           } else {
             const currentDescriptor = detections[0].descriptor;
 
@@ -305,9 +401,9 @@ function ProctorContent() {
               const distance = faceapi.euclideanDistance(referenceDescriptorRef.current, currentDescriptor);
               if (distance > 0.6) {
                 setFaceStatus(`🚨 FACE MISMATCH (${(distance * 100).toFixed(0)}%)`);
-                triggerViolation('face_mismatch', 'critical', `Biometric distance mismatch: ${distance.toFixed(2)}`);
+                triggerViolation('SUSPICIOUS_ACTIVITY', 'critical', `Biometric face mismatch: distance ${distance.toFixed(2)}`);
               } else {
-                setFaceStatus('✅ Identity Verified (100%)');
+                setFaceStatus('✅ Identity Verified');
               }
             } else {
               referenceDescriptorRef.current = currentDescriptor;
@@ -324,27 +420,20 @@ function ProctorContent() {
             const eyeDistRight = Math.abs(nose[0].x - rightEye[0].x);
             const yawRatio = eyeDistLeft / (eyeDistRight || 1);
 
-            // Head Pitch (Vertical Tilt)
             const eyeLevelY = (leftEye[0].y + rightEye[0].y) / 2;
             const noseY = nose[3] ? nose[3].y : nose[0].y;
             const pitchDiff = noseY - eyeLevelY;
 
-            if (yawRatio < 0.35) {
-              setFaceStatus('⚠️ FACE TURNED RIGHT');
-              triggerViolation('face_turn_right', 'medium', 'Candidate turned face significantly to the right.');
-            } else if (yawRatio > 2.8) {
-              setFaceStatus('⚠️ FACE TURNED LEFT');
-              triggerViolation('face_turn_left', 'medium', 'Candidate turned face significantly to the left.');
-            } else if (pitchDiff < 10) {
-              setFaceStatus('⚠️ HEAD TILTED UP');
-              triggerViolation('face_turn_up', 'low', 'Candidate looking upward away from screen.');
-            } else if (pitchDiff > 45) {
-              setFaceStatus('⚠️ HEAD LOOKING DOWN');
-              triggerViolation('face_turn_down', 'medium', 'Candidate looking down toward desk or phone.');
+            if (yawRatio < 0.35 || yawRatio > 2.8) {
+              setFaceStatus('⚠️ HEAD TURN DETECTED');
+              triggerViolation('SUSPICIOUS_ACTIVITY', 'medium', 'Candidate turned face significantly sideways.');
+            } else if (pitchDiff < 10 || pitchDiff > 45) {
+              setFaceStatus('⚠️ GAZE DEVIATION');
+              triggerViolation('SUSPICIOUS_ACTIVITY', 'medium', 'Candidate looking away from screen (up or down).');
             }
           }
         }
-      }, 3500);
+      }, 3000);
     }
 
     return () => clearInterval(intervalId);
@@ -354,22 +443,22 @@ function ProctorContent() {
   const generateAndSendReport = useCallback(async () => {
     const logs = evidenceLogsRef.current;
     const flagCounts = {
-      faceTurning: logs.filter((l) => l.eventType.startsWith('face_turn') || l.eventType === 'gaze_deviation').length,
-      noiseSpike: logs.filter((l) => l.eventType === 'noise_spike').length,
-      missingFace: logs.filter((l) => l.eventType === 'no_face').length,
-      multipleFaces: logs.filter((l) => l.eventType === 'multiple_faces').length,
-      tabSwitch: logs.filter((l) => l.eventType === 'tab_switch' || l.eventType === 'clipboard_attempt').length,
-      other: logs.filter((l) => !['face_turn_left', 'face_turn_right', 'face_turn_up', 'face_turn_down', 'gaze_deviation', 'noise_spike', 'no_face', 'multiple_faces', 'tab_switch', 'clipboard_attempt'].includes(l.eventType)).length,
+      faceAbsence: logs.filter((l) => l.eventType === 'FACE_ABSENCE').length,
+      multipleFace: logs.filter((l) => l.eventType === 'MULTIPLE_FACE').length,
+      soundDetected: logs.filter((l) => l.eventType === 'SOUND_DETECTED').length,
+      tabFocusChange: logs.filter((l) => l.eventType === 'TAB_FOCUS_CHANGE' || l.eventType === 'TAB_NOT_FOCUS').length,
+      fullscreenChange: logs.filter((l) => l.eventType === 'FULLSCREEN_CHANGE' || l.eventType === 'EXIT_FULLSCREEN').length,
+      suspiciousActivity: logs.filter((l) => l.eventType === 'SUSPICIOUS_ACTIVITY').length,
     };
 
     const reportPayload = {
-      reportId: `rep-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      sessionId: `${examId}-${studentId || matricNumber || 'cand'}`,
+      reportId: `rep_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      sessionId: `${examId}-${candidateId}`,
       examId,
-      studentId: studentId || matricNumber || 'Alex Mercer',
-      matricNumber: matricNumber || 'HVD-2026-8942',
-      studentName: studentName || 'Alex Mercer',
-      subject: subject || 'CS50 - Artificial Intelligence',
+      candidateId,
+      studentName,
+      subject,
+      tenantCode,
       completedAt: new Date().toISOString(),
       trustScore,
       totalViolations: logs.length,
@@ -377,7 +466,7 @@ function ProctorContent() {
       violations: logs,
     };
 
-    console.log('[OmniGuard Proctor] Generating complete exam report payload:', reportPayload);
+    console.log('[Proctor Widget] Generating complete audit report:', reportPayload);
 
     // Relay to parent window SDK
     if (window.parent && window.parent !== window) {
@@ -397,15 +486,19 @@ function ProctorContent() {
     } catch (err) {
       console.error('Failed to post audit report to server:', err);
     }
-  }, [examId, studentId, matricNumber, studentName, subject, trustScore]);
+  }, [examId, candidateId, studentName, subject, tenantCode, trustScore]);
 
-  // Listen for parent SDK messages
+  // Listen for parent SDK commands
   useEffect(() => {
     const handleParentMessage = (event: MessageEvent) => {
       if (!event.data) return;
 
       if (event.data.type === 'OMNIGUARD_PARENT_VIOLATION') {
-        triggerViolation(event.data.eventType, event.data.severity, event.data.detailsText);
+        triggerViolation(
+          event.data.eventType || 'SUSPICIOUS_ACTIVITY',
+          event.data.severity || 'medium',
+          event.data.detailsText || 'Host triggered violation'
+        );
       } else if (event.data.type === 'OMNIGUARD_REQUEST_REPORT') {
         generateAndSendReport();
       }
@@ -416,7 +509,18 @@ function ProctorContent() {
   }, [triggerViolation, generateAndSendReport]);
 
   return (
-    <div style={{ padding: '10px', color: '#f8fafc', fontFamily: 'sans-serif', position: 'relative', height: '100%', boxSizing: 'border-box', background: '#090d16' }}>
+    <div style={{
+      padding: '10px',
+      color: '#f8fafc',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      position: 'relative',
+      height: '100%',
+      boxSizing: 'border-box',
+      background: '#090d16',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+    }}>
       {activeWarning && (
         <div style={{
           position: 'absolute',
@@ -436,13 +540,14 @@ function ProctorContent() {
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+      {/* Header bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ height: '8px', width: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
-          <span style={{ fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.5px', color: '#38bdf8' }}>OMNIGUARD AI</span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.5px', color: '#38bdf8' }}>PROCTOR WIDGET</span>
         </div>
         <div style={{
-          fontSize: '0.7rem',
+          fontSize: '0.65rem',
           fontWeight: 800,
           padding: '2px 8px',
           borderRadius: '12px',
@@ -454,11 +559,12 @@ function ProctorContent() {
         </div>
       </div>
 
-      <div style={{ position: 'relative', width: '320px', height: '175px', borderRadius: '8px', overflow: 'hidden', background: '#000000', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
+      {/* Video Container */}
+      <div style={{ position: 'relative', width: '100%', height: '160px', borderRadius: '8px', overflow: 'hidden', background: '#000000', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
         <video
           ref={videoRef}
           width="320"
-          height="175"
+          height="160"
           muted
           playsInline
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -466,18 +572,22 @@ function ProctorContent() {
         <canvas
           ref={canvasRef}
           width="320"
-          height="175"
+          height="160"
           style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
         />
       </div>
 
-      <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: '#94a3b8' }}>
-        <span>Status: <strong style={{ color: '#ffffff' }}>{faceStatus}</strong></span>
+      {/* Status Indicators */}
+      <div style={{ marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: '#94a3b8' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
+          Status: <strong style={{ color: '#ffffff' }}>{faceStatus}</strong>
+        </span>
         <span>Mic: <strong style={{ color: audioDb > 68 ? '#f43f5e' : '#34d399' }}>{audioDb} dB</strong></span>
       </div>
 
-      <div style={{ marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.65rem', color: '#64748b' }}>
-        <span>Flags Captured: <strong style={{ color: '#06b6d4' }}>{evidenceLogs.length}</strong></span>
+      {/* Footer controls */}
+      <div style={{ marginTop: '2px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.65rem', color: '#64748b' }}>
+        <span>Flags: <strong style={{ color: '#06b6d4' }}>{evidenceLogs.length}</strong></span>
         <button
           onClick={generateAndSendReport}
           style={{ background: 'transparent', border: 'none', color: '#818cf8', cursor: 'pointer', textDecoration: 'underline', padding: 0, fontSize: '0.65rem' }}
@@ -491,7 +601,7 @@ function ProctorContent() {
 
 export default function ProctorPage() {
   return (
-    <Suspense fallback={<div style={{ color: '#fff', padding: '20px' }}>Loading OmniGuard Invigilator...</div>}>
+    <Suspense fallback={<div style={{ color: '#fff', padding: '20px', background: '#090d16' }}>Loading Proctor Widget...</div>}>
       <ProctorContent />
     </Suspense>
   );
