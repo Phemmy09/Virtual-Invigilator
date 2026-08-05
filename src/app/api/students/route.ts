@@ -114,11 +114,11 @@ export async function GET(req: NextRequest) {
     }
 
     // Try finding in memory store first
-    let student = inMemoryStudents.find(
-      (s) =>
-        (idNumber && s.idNumber.toLowerCase() === idNumber.trim().toLowerCase()) ||
-        (name && s.name.toLowerCase() === name.trim().toLowerCase())
-    );
+    let student = inMemoryStudents.find((s) => {
+      const matchId = idNumber ? s.idNumber.toLowerCase() === idNumber.trim().toLowerCase() : true;
+      const matchName = name ? s.name.toLowerCase() === name.trim().toLowerCase() : true;
+      return matchId && matchName;
+    });
 
     // If not found in memory store and Supabase is configured, check Supabase
     if (!student && isSupabaseConfigured() && idNumber) {

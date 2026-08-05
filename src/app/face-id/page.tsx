@@ -104,45 +104,7 @@ function FaceIdContent() {
     }
   }, [candidateId, examId, domain, eventName, tenantCode, captureSnapshot]);
 
-  // Load face-api.js script
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = '/face-api.min.js';
-    script.async = true;
-    script.onload = () => {
-      loadModels();
-    };
-    document.body.appendChild(script);
-
-    return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
-
-  const loadModels = async () => {
-    try {
-      if (window.faceapi) {
-        const MODEL_URL = '/models';
-        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        setIsModelsLoaded(true);
-        setStatusMessage('Biometric AI Models Loaded. Starting camera...');
-        startCamera();
-      }
-    } catch (err) {
-      console.error('Error loading face-api models:', err);
-      setStatusMessage('Camera active (Standard mode).');
-      startCamera();
-    }
-  };
-
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 320, height: 240, frameRate: 20 },
@@ -161,7 +123,45 @@ function FaceIdContent() {
       setStatusMessage('⚠️ Webcam permission denied or device missing.');
       postFlagToWebhook('SUSPICIOUS_ACTIVITY', 'Camera access denied during face identification.');
     }
-  };
+  }, [postFlagToWebhook]);
+
+  const loadModels = useCallback(async () => {
+    try {
+      if (window.faceapi) {
+        const MODEL_URL = '/models';
+        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        setIsModelsLoaded(true);
+        setStatusMessage('Biometric AI Models Loaded. Starting camera...');
+        startCamera();
+      }
+    } catch (err) {
+      console.error('Error loading face-api models:', err);
+      setStatusMessage('Camera active (Standard mode).');
+      startCamera();
+    }
+  }, [startCamera]);
+
+  // Load face-api.js script
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = '/face-api.min.js';
+    script.async = true;
+    script.onload = () => {
+      loadModels();
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [loadModels]);
 
   // Run Biometric Face Scanning & Verification Loop
   useEffect(() => {

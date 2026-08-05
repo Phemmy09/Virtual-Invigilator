@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 
 declare global {
@@ -82,6 +82,20 @@ export default function StudentPortal() {
     }
   }, []);
 
+  const loadModels = useCallback(async () => {
+    try {
+      if (window.faceapi) {
+        const MODEL_URL = '/models';
+        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        setIsModelsLoaded(true);
+      }
+    } catch (err) {
+      console.error('Error loading face-api models:', err);
+    }
+  }, []);
+
   // Load face-api.js script
   useEffect(() => {
     const script = document.createElement('script');
@@ -97,21 +111,7 @@ export default function StudentPortal() {
         document.body.removeChild(script);
       }
     };
-  }, []);
-
-  const loadModels = async () => {
-    try {
-      if (window.faceapi) {
-        const MODEL_URL = '/models';
-        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        setIsModelsLoaded(true);
-      }
-    } catch (err) {
-      console.error('Error loading face-api models:', err);
-    }
-  };
+  }, [loadModels]);
 
   // Start webcam preview when student record is loaded
   useEffect(() => {
@@ -129,7 +129,7 @@ export default function StudentPortal() {
   }, [step, enrolledStudent]);
 
   // Lookup candidate record as soon as Name & ID are entered / searched
-  const lookupCandidate = async (idToSearch?: string, nameToSearch?: string) => {
+  const lookupCandidate = useCallback(async (idToSearch?: string, nameToSearch?: string) => {
     const searchId = idToSearch !== undefined ? idToSearch : matricNumber;
     const searchName = nameToSearch !== undefined ? nameToSearch : studentName;
 
@@ -155,12 +155,12 @@ export default function StudentPortal() {
     } finally {
       setLookupLoading(false);
     }
-  };
+  }, [matricNumber, studentName]);
 
   // Auto lookup default student on mount
   useEffect(() => {
     lookupCandidate('HVD-2026-8942', 'Alex Mercer');
-  }, []);
+  }, [lookupCandidate]);
 
   // Perform Live Face Capture & Verify against Enrolled Image Descriptor
   const handleVerifyFace = async () => {
@@ -572,12 +572,12 @@ export default function StudentPortal() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '32px' }}>
             <div style={{ padding: '24px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.3)', textAlign: 'center' }}>
-              <div style={{ fontSize: '0.85rem', color: '#818cf8', marginBottom: '8px' }}>Total Marks Awarded</div>
+              <div style={{ fontSize: '0.85rem', color: '#818cf8', marginBottom: '8px' }}>Total Score Percentage</div>
               <div style={{ fontSize: '3rem', fontWeight: 900, color: '#ffffff' }}>
-                {examResult.scorePercentage}%
+                {Math.round(((examResult.totalMarksAwarded || 0) / (examResult.totalPossibleMarks || 1)) * 100)}%
               </div>
               <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '8px' }}>
-                Security Trust Rating: <strong>{examResult.securityTrustScore}%</strong>
+                Marks Awarded: <strong>{examResult.totalMarksAwarded || 0} / {examResult.totalPossibleMarks || 15}</strong>
               </div>
               <div style={{ marginTop: '16px' }}>
                 <Link href="/report" className="btn-primary" style={{ textDecoration: 'none', display: 'block', fontSize: '0.85rem', padding: '10px 16px' }}>
@@ -594,10 +594,12 @@ export default function StudentPortal() {
                     <span style={{ fontWeight: 600 }}>Question {idx + 1}</span>
                     <span style={{ color: '#10b981', fontWeight: 700 }}>{r.marksAwarded} / {r.maxMarks} Marks</span>
                   </div>
-                  {r.aiFeedback && (
+                  {r.feedback && (
                     <div style={{ fontSize: '0.85rem', color: '#cbd5e1', marginTop: '6px', lineHeight: 1.4 }}>
-                      <div>💡 <strong>Conceptual:</strong> {r.aiFeedback.conceptualScore}%</div>
-                      <div>📝 <strong>Feedback:</strong> {r.aiFeedback.feedbackText}</div>
+                      <div>📝 <strong>Feedback Summary:</strong> {r.feedback.overall_summary || r.feedback.summary || 'Graded successfully.'}</div>
+                      {r.feedback.conceptual_accuracy && (
+                        <div>💡 <strong>Conceptual Score:</strong> {r.feedback.conceptual_accuracy.score} / {r.feedback.conceptual_accuracy.max} ({r.feedback.conceptual_accuracy.commentary})</div>
+                      )}
                     </div>
                   )}
                 </div>

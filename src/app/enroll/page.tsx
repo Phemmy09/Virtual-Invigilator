@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 
 declare global {
@@ -58,55 +58,15 @@ export default function StudentEnrollment() {
     }
   };
 
-  // Load face-api.js
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = '/face-api.min.js';
-    script.async = true;
-    script.onload = () => {
-      loadModels();
-    };
-    script.onerror = () => {
-      setCaptureStatus('Standard Camera Mode Ready (Face API fallback).');
-      startCamera();
-    };
-    document.body.appendChild(script);
-
-    return () => {
-      stopCamera();
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
-    };
-  }, []);
-
-  const loadModels = async () => {
-    try {
-      if (window.faceapi) {
-        const MODEL_URL = '/models';
-        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        setIsModelsLoaded(true);
-        setCaptureStatus('Biometric AI Engine Ready. Align face in camera frame.');
-        startCamera();
-      }
-    } catch (err) {
-      console.error('Error loading face-api models:', err);
-      setCaptureStatus('Camera engine loaded in standard mode.');
-      startCamera();
-    }
-  };
-
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
     }
     setIsCameraActive(false);
-  };
+  }, []);
 
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     try {
       stopCamera();
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -127,7 +87,47 @@ export default function StudentEnrollment() {
       setIsCameraActive(false);
       setCaptureStatus('⚠️ Camera permission denied or webcam missing.');
     }
-  };
+  }, [stopCamera]);
+
+  const loadModels = useCallback(async () => {
+    try {
+      if (window.faceapi) {
+        const MODEL_URL = '/models';
+        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        setIsModelsLoaded(true);
+        setCaptureStatus('Biometric AI Engine Ready. Align face in camera frame.');
+        startCamera();
+      }
+    } catch (err) {
+      console.error('Error loading face-api models:', err);
+      setCaptureStatus('Camera engine loaded in standard mode.');
+      startCamera();
+    }
+  }, [startCamera]);
+
+  // Load face-api.js
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = '/face-api.min.js';
+    script.async = true;
+    script.onload = () => {
+      loadModels();
+    };
+    script.onerror = () => {
+      setCaptureStatus('Standard Camera Mode Ready (Face API fallback).');
+      startCamera();
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      stopCamera();
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, [loadModels, startCamera, stopCamera]);
 
   const handleCaptureFace = async () => {
     if (!videoRef.current && !mediaStreamRef.current) {

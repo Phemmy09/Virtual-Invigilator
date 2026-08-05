@@ -270,62 +270,7 @@ function ProctorContent() {
     };
   }, [triggerViolation]);
 
-  // Load face-api.js script dynamically
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = '/face-api.min.js';
-    script.async = true;
-    script.onload = () => {
-      loadModels();
-    };
-    document.body.appendChild(script);
-
-    return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
-    };
-  }, []);
-
-  const loadModels = async () => {
-    try {
-      if (window.faceapi) {
-        const MODEL_URL = '/models';
-        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        setIsModelsLoaded(true);
-        setFaceStatus('Biometric AI Engaged. Camera Active.');
-        startVideoAndAudio();
-      }
-    } catch (err) {
-      console.error('Error loading face-api models:', err);
-      setFaceStatus('Error loading AI models.');
-    }
-  };
-
-  const startVideoAndAudio = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 240, frameRate: 15 },
-        audio: true,
-      });
-
-      mediaStreamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
-      }
-
-      setupAudioMeter(stream);
-    } catch (err) {
-      console.error('Camera/Microphone access error:', err);
-      triggerViolation('SUSPICIOUS_ACTIVITY', 'critical', 'Camera or microphone permission denied.');
-    }
-  };
-
-  const setupAudioMeter = (stream: MediaStream) => {
+  const setupAudioMeter = useCallback((stream: MediaStream) => {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const audioContext = new AudioCtx();
@@ -360,7 +305,64 @@ function ProctorContent() {
     } catch (err) {
       console.error('Audio meter error:', err);
     }
-  };
+  }, [triggerViolation]);
+
+  const startVideoAndAudio = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240, frameRate: 15 },
+        audio: true,
+      });
+
+      mediaStreamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+
+      setupAudioMeter(stream);
+    } catch (err) {
+      console.error('Camera/Microphone access error:', err);
+      triggerViolation('SUSPICIOUS_ACTIVITY', 'critical', 'Camera or microphone permission denied.');
+    }
+  }, [setupAudioMeter, triggerViolation]);
+
+  const loadModels = useCallback(async () => {
+    try {
+      if (window.faceapi) {
+        const MODEL_URL = '/models';
+        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        setIsModelsLoaded(true);
+        setFaceStatus('Biometric AI Engaged. Camera Active.');
+        startVideoAndAudio();
+      }
+    } catch (err) {
+      console.error('Error loading face-api models:', err);
+      setFaceStatus('Error loading AI models.');
+    }
+  }, [startVideoAndAudio]);
+
+  // Load face-api.js script dynamically
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = '/face-api.min.js';
+    script.async = true;
+    script.onload = () => {
+      loadModels();
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, [loadModels]);
+
+
 
   // Continuous Video Frame & Face Landmark Processing
   useEffect(() => {
