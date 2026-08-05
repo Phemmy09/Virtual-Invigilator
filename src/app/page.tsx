@@ -21,6 +21,9 @@ export default function LandingPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '16px' }}>
+          <Link href="/docs" className="btn-secondary" style={{ borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8' }}>
+            📖 Documentation
+          </Link>
           <Link href="/enroll" className="btn-secondary" style={{ borderColor: 'rgba(99, 102, 241, 0.4)', color: '#818cf8' }}>
             ➕ Student Enrollment
           </Link>
@@ -53,6 +56,9 @@ export default function LandingPage() {
         </p>
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', flexWrap: 'wrap' }}>
+          <Link href="/docs" className="btn-primary" style={{ padding: '16px 36px', fontSize: '1rem', background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)' }}>
+            📖 System Documentation
+          </Link>
           <Link href="/enroll" className="btn-primary" style={{ padding: '16px 36px', fontSize: '1rem', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}>
             ➕ Enroll Candidate
           </Link>
